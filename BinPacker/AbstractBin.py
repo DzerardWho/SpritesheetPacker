@@ -15,7 +15,7 @@ class Bin:
     def add(self, rect=None, width=None, height=None, data=None):
         pass
 
-    def reset(self, deepReset):
+    def reset(self):
         pass
 
     def repack(self):

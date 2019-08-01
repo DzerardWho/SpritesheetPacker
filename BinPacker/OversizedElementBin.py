@@ -1,5 +1,5 @@
-from AbstractBin import Bin
-from Rectangle import Rectangle
+from .AbstractBin import Bin
+from .Rectangle import Rectangle
 
 
 class OversizedBin(Bin):
@@ -26,7 +26,7 @@ class OversizedBin(Bin):
     def add(self, rect):
         return None
 
-    def reset(self, deepReset=False):
+    def reset(self):
         pass
 
     def repack(self):

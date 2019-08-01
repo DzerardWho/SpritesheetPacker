@@ -1,5 +1,5 @@
-from Rectangle import Rectangle
-from AbstractBin import Bin
+from .Rectangle import Rectangle
+from .AbstractBin import Bin
 import sys
 import math
 
@@ -29,32 +29,22 @@ class MaxBin(Bin):
 
     def repack(self):
         unpacked = []
-        self.reset()
         self.rects.sort(reverse=True)
 
         for i in self.rects:
             if not self.place(i):
                 unpacked.append(i)
 
-        self.rects.clear()
+        self.reset()
 
     def findNode(self, width, height):
         score = sys.maxsize
         bestNode = None
         for i in self.freeRects:
             if i.width >= width and i.height >= height:
-                areaFit = i.width * i.height - width * height
+                areaFit = i.area() - width * height
                 if areaFit < score:
                     bestNode = Rectangle(width, height, i.x, i.y)
-                    score = areaFit
-
-            if not self.options['allowRotation']:
-                continue
-
-            if i.width >= height and i.height >= width:
-                areaFit = i.width * i.height - width * height
-                if areaFit < score:
-                    bestNode = Rectangle(height, width, i.x, i.y, True)
                     score = areaFit
 
         return bestNode
@@ -63,11 +53,13 @@ class MaxBin(Bin):
         for i in range(len(self.freeRects)):
             if self.freeRects[i].x + self.freeRects[i].width \
                     >= min(self.width + self.padding - self.border, width):
-                self.freeRects[i].width = width - self.freeRects[i].x - self.border
+                self.freeRects[i].width = width - \
+                    self.freeRects[i].x - self.border
 
             if self.freeRects[i].y + self.freeRects[i].height \
                     >= min(self.height + self.padding - self.border, height):
-                self.freeRects[i].height = height - self.freeRects[i].y - self.border
+                self.freeRects[i].height = height - \
+                    self.freeRects[i].y - self.border
 
         self.freeRects.append(Rectangle(
             width - self.width - self.padding,
@@ -82,9 +74,9 @@ class MaxBin(Bin):
             self.height + self.padding - self.border
         ))
         self.freeRects = list(filter(lambda x: not(
-                x.width <= 0 or x.height <= 0 or
-                x.x < self.border or x.y < self.border
-            ), self.freeRects))
+            x.width <= 0 or x.height <= 0 or
+            x.x < self.border or x.y < self.border
+        ), self.freeRects))
         self.pruneFreeList()
 
     def updateBinSize(self, node):
@@ -95,16 +87,6 @@ class MaxBin(Bin):
         tmpHeight = max(self.height, node.y + node.height -
                         self.padding + self.border)
 
-        if self.options['allowRotation']:
-            # Extra test on rotated node whether it's a better choice
-            rotWidth = max(self.width, node.x + node.height -
-                           self.padding + self.border)
-            rotHeight = max(self.height, node.y + node.width -
-                            self.padding + self.border)
-            if rotWidth * rotHeight < tmpWidth * tmpHeight:
-                tmpWidth = rotWidth
-                tmpHeight = rotHeight
-
         if self.options['pot']:
             tmpWidth = 2 ** math.ceil(math.log2(tmpWidth))
             tmpHeight = 2 ** math.ceil(math.log2(tmpHeight))
@@ -112,7 +94,7 @@ class MaxBin(Bin):
         if self.options['square']:
             tmpWidth = tmpHeight = max(tmpWidth, tmpHeight)
 
-        if tmpWidth > self.maxWidth + self.padding or\
+        if tmpWidth > self.maxWidth + self.padding or \
                 tmpHeight > self.maxHeight + self.padding:
             return False
 
@@ -126,9 +108,11 @@ class MaxBin(Bin):
             return False
 
         # Vertical split
-        if usedNode.x < freeRect.x + freeRect.width and usedNode.x + usedNode.width > freeRect.x:
+        if usedNode.x < freeRect.x + freeRect.width and \
+                usedNode.x + usedNode.width > freeRect.x:
             # New node at the top side of the used node
-            if usedNode.y > freeRect.y and usedNode.y < freeRect.y + freeRect.height:
+            if usedNode.y > freeRect.y and \
+                    usedNode.y < freeRect.y + freeRect.height:
                 self.freeRects.append(Rectangle(
                     freeRect.width,
                     usedNode.y - freeRect.y,
@@ -140,7 +124,8 @@ class MaxBin(Bin):
             if usedNode.y + usedNode.height < freeRect.y + freeRect.height:
                 self.freeRects.append(Rectangle(
                     freeRect.width,
-                    freeRect.y + freeRect.height - (usedNode.y + usedNode.height),
+                    freeRect.y + freeRect.height -
+                    (usedNode.y + usedNode.height),
                     freeRect.x,
                     usedNode.y + usedNode.height
                 ))
@@ -161,7 +146,8 @@ class MaxBin(Bin):
             # New node at the right of the used node
             if usedNode.x + usedNode.width < freeRect.x + freeRect.width:
                 self.freeRects.append(Rectangle(
-                    freeRect.x + freeRect.width - (usedNode.x + usedNode.width),
+                    freeRect.x + freeRect.width -
+                    (usedNode.x + usedNode.width),
                     freeRect.height,
                     usedNode.x + usedNode.width,
                     freeRect.y
@@ -187,18 +173,12 @@ class MaxBin(Bin):
                     self.freeRects.remove(tmpRect2)
                     j -= 1
                     lenR -= 1
+
                 j += 1
             i += 1
 
     def place(self, rect):
-        if 'tag' in rect.data:
-            tag = rect.data['tag']
-        elif hasattr(rect, 'tag'):
-            tag = rect.tag
-        else:
-            tag = None
-
-        if self.options['tag'] and self.tag != tag:
+        if self.options['tag'] and self.tag != rect.tag:
             return False
 
         node = self.findNode(
@@ -220,7 +200,6 @@ class MaxBin(Bin):
             self.verticalExpand = self.width > self.height
             rect.x = node.x
             rect.y = node.y
-            rect.rot = not rect.rot if node.rot else rect.rot
             self._dirty += 1
 
             return rect
@@ -254,13 +233,12 @@ class MaxBin(Bin):
 
         return False
 
-    def reset(self, deepReset=False):
-        if deepReset:
-            if self.data:
-                del self.data
-            if self.tag:
-                del self.tag
-            self.rects.clear()
+    def reset(self):
+        if self.data:
+            self.data.clear()
+        if self.tag:
+            self.tag = None
+        self.rects.clear()
 
         self.width = 0 if self.options['smart'] else self.maxWidth
         self.height = 0 if self.options['smart'] else self.maxHeight
@@ -277,14 +255,7 @@ class MaxBin(Bin):
 
     def add(self, rect=None, width=None, height=None, data=None):
         if rect:
-            if 'tag' in rect.data:
-                tag = rect.data['tag']
-            elif hasattr(rect, 'tag'):
-                tag = rect.tag
-            else:
-                tag = None
-
-            if self.options['tag'] and self.tag != tag:
+            if self.options['tag'] and self.tag != rect.tag:
                 return False
         elif width and height:
             if self.options['tag']:

@@ -1,13 +1,13 @@
-from Bin import MaxBin
-from OversizedElementBin import OversizedBin
-from Rectangle import Rectangle
+from .Bin import MaxBin
+from .OversizedElementBin import OversizedBin
+from .Rectangle import Rectangle
 from random import randint
 
 EDGE_MAX_VALUE = 4096
 EDGE_MIN_VALUE = 64
 
 
-class RectPacker():
+class BinPacker():
     def __init__(
             self,
             width=EDGE_MAX_VALUE,
@@ -22,23 +22,20 @@ class RectPacker():
             'smart': True,
             'pot': True,
             'square': False,
-            'allowRotation': False,
             'tag': False,
             'border': 0
         }
-        self._currentBin = 0
         self.bins = []
 
         if type(options) == dict:
             self.options.update(options)
 
     @property
-    def currentBin(self):
-        return self._currentBin
-
-    @property
     def dirty(self):
-        return any([bin.dirty for bin in self.bins])
+        for bin in self.bins:
+            if bin.dirty:
+                return True
+        return False
 
     @property
     def rects(self):
@@ -65,7 +62,7 @@ class RectPacker():
             self.bins.append(OversizedBin(rect))
         else:
             added = False
-            for bin in self.bins[self._currentBin:]:
+            for bin in self.bins:
                 if type(bin) == OversizedBin:
                     continue
                 added = bin.add(rect)
@@ -76,15 +73,9 @@ class RectPacker():
                 bin = MaxBin(
                     self.width, self.height, self.padding, self.options
                 )
-                if 'tag' in rect.data:
-                    tag = rect.data['tag']
-                elif hasattr(rect, 'tag'):
-                    tag = rect.tag
-                else:
-                    tag = None
 
-                if self.options['tag'] and tag:
-                    bin.tag = tag
+                if self.options['tag'] and rect.tag:
+                    bin.tag = rect.tag
 
                 bin.add(rect)
                 self.bins.append(bin)
@@ -99,84 +90,23 @@ class RectPacker():
 
     def addList(self, rects):
         if len(rects) and type(rects[0]) is not Rectangle:
-            rects = [Rectangle(i['width'], i['height'], data=i.get('data', None)) for i in rects]
+            rects = [
+                Rectangle(i['width'], i['height'],
+                          data=i.get('data', None)) for i in rects
+                ]
 
         for i in self.sort(rects):
             self.add(i)
 
-    def reset(self):
-        self.bins.clear()
-        self._currentBin = 0
+        return self
 
-    def next(self):
-        self._currentBin = len(self.bins)
-        return self._currentBin
-
-    def repack(self, quick=True):
-        if quick:
-            unpack = []
-            for bin in self.bins:
-                if bin.dirty:
-                    up = bin.repack()
-                    if up:
-                        unpack.extend(up)
-            self.addList(unpack)
-            return
-
+    def repack(self):
         if not self.dirty:
             return
 
         allRects = self.rects
-        self.reset()
+        self.bins.clear()
         self.addList(allRects)
-
-    def save(self):
-        saveBins = []
-        for bin in self.bins:
-            saveBin = {
-                'width': bin.width,
-                'height': bin.height,
-                'maxWidth': bin.maxWidth,
-                'maxHeight': bin.maxHeight,
-                'freeRects': [
-                    {
-                        'x': i.x,
-                        'y': i.y,
-                        'width': i.width,
-                        'height': i.height
-                    } for i in bin.freeRects
-                ],
-                'rects': list(bin.rects),
-                'options': bin.options
-            }
-            if bin.tag:
-                saveBin['tag'] = bin.tag
-
-            saveBins.append(saveBin)
-
-        return saveBins
-
-    def load(self, bins):
-        index = 0
-        for bin in bins:
-            if bin.maxWidth > self.width or bin.maxHeight > self.height:
-                self.bins.append(OversizedBin(None, bin['width'],
-                                              bin['height']))
-            else:
-                newBin = MaxBin(self.width, self.height,
-                                self.padding, bin['options'])
-
-                newBin.freeRects.clear()
-                for i in bin['freeRects']:
-                    newBin.freeRects.append(Rectangle(
-                        i['width'], i['height'], i['x'], i['y']
-                    ))
-                    newBin.width = bin.width
-                    newBin.height = bin.height
-                    if 'tag' in bin:
-                        newBin.tag = bin['tag']
-                    self.bins[index]
-                    index += 1
 
     def getData(self):
         data = []

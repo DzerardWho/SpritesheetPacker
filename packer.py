@@ -15,7 +15,7 @@ def positive_value(x) -> int:
 
 
 argParser = argparse.ArgumentParser("Generate spritesheet")
-argParser.add_argument('format', nargs='?', default='./*.png', type=str,
+argParser.add_argument('format', nargs='?', default='png', type=str,
                        help="Format of files from which spritesheet will be generated")
 argParser.add_argument('-p', '--padding', nargs='?', default=5,
                        type=positive_value, help="Padding added to each image")
@@ -32,7 +32,7 @@ argParser.add_argument('-o', '--outfolder', default='out',
 def main() -> None:
     args = argParser.parse_args()
 
-    files = glob(f'*.{argParser.format}')
+    files = glob(f'*.{args.format}')
 
     if not len(files):
         return 0
@@ -48,6 +48,8 @@ def main() -> None:
             }
         } for i in images
     ]
+
+    # print()
 
     packer = BinPacker(
         abs(args.max_width),
@@ -66,16 +68,19 @@ def main() -> None:
 
     with open(outFolder / 'spritesheet.json', 'w', encoding='utf-8') as file:
         # spritesheet = [{**i['rects']} for i in data.copy()]
-        spritesheet = []
+        spritesheet = {}
         for i in range(len(data)):
             t = {}
             for j in data[i]['rects'].keys():
                 t[j] = {}
                 t[j]['x'], t[j]['y'] = data[i]['rects'][j]['pos']
                 t[j]['width'], t[j]['height'] = data[i]['rects'][j]['size']
-            spritesheet.append(t)
+            spritesheet[f'{out}.png'] = t.copy()
+            out += 1
 
         json.dump(spritesheet, file, indent=4)
+
+    out = 0
 
     for i in data:
         image = Image.new('RGBA', i['size'])

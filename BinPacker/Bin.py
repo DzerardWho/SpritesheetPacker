@@ -193,6 +193,7 @@ class MaxBin(Bin):
             while(i < numRectToProcess):
                 if self.splitNode(self.freeRects[i], node):
                     del self.freeRects[i]
+                    numRectToProcess -= 1
                     i -= 1
                 i += 1
 

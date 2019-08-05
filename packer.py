@@ -1,6 +1,5 @@
 import json
 import argparse
-from glob import glob
 from PIL import Image
 from pathlib import Path
 from os import makedirs
@@ -16,7 +15,8 @@ def positive_value(x) -> int:
 
 argParser = argparse.ArgumentParser("Generate spritesheet")
 argParser.add_argument('format', nargs='?', default='png', type=str,
-                       help="Format of files from which spritesheet will be generated")
+                       help="Format of files from which spritesheet will be \
+                            generated")
 argParser.add_argument('-p', '--padding', nargs='?', default=5,
                        type=positive_value, help="Padding added to each image")
 argParser.add_argument('-b', '--border', nargs='?', default=0,
@@ -25,31 +25,43 @@ argParser.add_argument('-mw', '--max-width', default=2048, type=positive_value,
                        help="Max width of spritesheet")
 argParser.add_argument('-mh', '--max-height', default=2048,
                        type=positive_value, help="Max heigth of spritesheet")
+argParser.add_argument('-d', '--dir', default='./',
+                       type=str, help="Location where images are kept")
 argParser.add_argument('-o', '--outfolder', default='out',
                        type=str, help="Name of output folder")
+
+
+def processImage(image):
+    transparent = False
+    k = image.load()
+    for x in range(image.width):
+        for y in range(image.height):
+            if k[x, y][3] == 0:
+                transparent = True
+                k[x, y] = (0, 0, 0, 0)
+    return (image.size, image.getbbox(), transparent, image.crop(image.getbbox()))
 
 
 def main() -> None:
     args = argParser.parse_args()
 
-    files = glob(f'*.{args.format}')
+    files = list(Path(args.dir).glob(f'*.{args.format}'))
+    # files = glob(f'*.{args.format}')
 
     if not len(files):
         return 0
 
-    images = {Path(i).stem: Image.open(i) for i in files}
+    images = {Path(i).stem: processImage(Image.open(i)) for i in files}
 
     sizes = [
         {
-            'width': images[i].width,
-            'height': images[i].height,
+            'width': images[i][3].width,
+            'height': images[i][3].height,
             'data': {
                 'name': i
             }
         } for i in images
     ]
-
-    # print()
 
     packer = BinPacker(
         abs(args.max_width),
@@ -75,6 +87,8 @@ def main() -> None:
                 t[j] = {}
                 t[j]['x'], t[j]['y'] = data[i]['rects'][j]['pos']
                 t[j]['width'], t[j]['height'] = data[i]['rects'][j]['size']
+                t[j]['pad_x'], t[j]['pad_y'], *_ = images[j][1]
+                t[j]['transparent'] = images[j][2]
             spritesheet[f'{out}.png'] = t.copy()
             out += 1
 
@@ -86,7 +100,7 @@ def main() -> None:
         image = Image.new('RGBA', i['size'])
 
         for j in i['rects'].keys():
-            image.paste(images[j], i['rects'][j]['pos'])
+            image.paste(images[j][3], i['rects'][j]['pos'])
 
         image.save(str(outFolder / f'{out}.png'))
         out += 1

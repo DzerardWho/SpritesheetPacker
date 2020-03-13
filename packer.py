@@ -1,5 +1,6 @@
 import json
 import argparse
+import lxml.etree as et
 from PIL import Image
 from pathlib import Path
 from os import makedirs
@@ -7,8 +8,8 @@ from BinPacker.BinPacker import BinPacker
 from os import chdir
 from tempfile import TemporaryDirectory
 import numpy as np
-import pyopencl as cl
-import time
+from typing import List, Dict
+
 
 def positive_value(x) -> int:
     x = int(x)
@@ -19,8 +20,8 @@ def positive_value(x) -> int:
 
 argParser = argparse.ArgumentParser("Generate spritesheet")
 argParser.add_argument('format', nargs='?', default='png', type=str,
-                       help="Format of files from which spritesheet will be \
-                            generated")
+                       help="Format of files from which spritesheet will be "
+                            "generated")
 argParser.add_argument('-p', '--padding', nargs='?', default=5,
                        type=positive_value, help="Padding added to each image")
 argParser.add_argument('-b', '--border', nargs='?', default=0,
@@ -35,80 +36,43 @@ argParser.add_argument('-o', '--outfolder', default='out',
                        type=str, help="Name of output folder")
 argParser.add_argument('-f', '--outFormat', default='png',
                        type=str, help="Format used to export spritesheets")
+argParser.add_argument('-x', '--xml', default=False, action='store_true',
+                       help="Export spritesheet as xml, json otherwise")
 
 
-def processImage(image):
-    k = image.load()
-    for x in range(image.width):
-        for y in range(image.height):
-            try:
-                if k[x, y][3] == 0:
-                    k[x, y] = (0, 0, 0, 0)
-            except TypeError:
-                pass
-    return (image.size, image.getbbox(), image.crop(image.getbbox()))
-
-
-src = '''const sampler_t sampler = CLK_NORMALIZED_COORDS_FALSE | CLK_FILTER_NEAREST | CLK_ADDRESS_CLAMP_TO_EDGE;
-
-__kernel void clearTransparency(__read_only image2d_t in, __write_only image2d_t out) {
-    int2 coords = (int2)(get_global_id(0), get_global_id(1));
-
-    uint4 pxVal = read_imageui(in, sampler, coords);
-    
-    if (pxVal.w == 0) {
-        write_imageui(out, coords, (uint4)(0));
-    } else {
-        write_imageui(out, coords, pxVal);
-    }
-}'''
-
-
-def cleanImages(files, tempPath):
+def cleanImages(files: List[Path], tempPath: Path) -> Dict[str, Dict]:
     outData = {}
 
-    plat = cl.get_platforms()
-    GPU = plat[0].get_devices()
-    ctx = cl.Context(GPU)
-    queue = cl.CommandQueue(ctx)
-    mf = cl.mem_flags
-    # ustawienia formatu pliku
-    ift = cl.ImageFormat(cl.channel_order.RGBA, cl.channel_type.UNSIGNED_INT8)
-    prg = cl.Program(ctx, src).build()
-
-    print("Start:", time.time())
     for file in files:
         name = Path(file).stem
-        image = Image.open(file).convert("RGBA")
-        shape = image.size
+        imageFile = Image.open(file)
+        image = np.array(imageFile.convert("RGBA"))
+        imageFile.close()
+        shape = image.shape
 
-        imageIn = np.array(image)
-        imageOut = np.empty_like(imageIn)
-        imgInBuf = cl.image_from_array(ctx, imageIn, 4)
-        imgOutBuf = cl.Image(ctx, mf.WRITE_ONLY, ift, shape=shape)
-        prg.clearTransparency(queue, shape, None, imgInBuf, imgOutBuf)
-
-        cl.enqueue_copy(
-            queue,
-            imageOut,
-            imgOutBuf,
-            origin=(0, 0),
-            region=shape
+        mask = image[:, :, 3] == 0
+        r = Image.fromarray(
+            np.ma.array(image[:, :, 0], mask=mask).filled(0),
+            'L'
         )
+        g = Image.fromarray(
+            np.ma.array(image[:, :, 1], mask=mask).filled(0),
+            'L'
+        )
+        b = Image.fromarray(
+            np.ma.array(image[:, :, 2], mask=mask).filled(0),
+            'L'
+        )
+        a = Image.fromarray(image[:, :, 3], 'L')
 
         path = Path(tempPath, f'{name}.npy')
-        img = Image.fromarray(imageOut)
+        img = Image.merge('RGBA', [r, g, b, a])
         padding = img.getbbox()
         img = img.crop(img.getbbox())
         newSize = img.size
         np.save(path, img)
 
-        del imageIn
-        del imageOut
-        del imgInBuf
-        del imgOutBuf
         del img
-        image.close()
         outData[name] = {
             'path': path,
             'width': shape[0],
@@ -118,25 +82,61 @@ def cleanImages(files, tempPath):
             'padding': padding
         }
 
-    print("End:", time.time())
     return outData
 
 
-def main() -> None:
-    args = argParser.parse_args()
+def toJson(data: list, images, outFolder: Path, outFormat: str) -> None:
+    out = 0
+    spritesheet = {}
+    for i in range(len(data)):
+        t = {}
+        for j in data[i]['rects'].keys():
+            t[j] = {}
+            t[j]['x'], t[j]['y'] = data[i]['rects'][j]['pos']
+            t[j]['width'], t[j]['height'] = data[i]['rects'][j]['size']
+            t[j]['pad_x'], t[j]['pad_y'], *_ = images[j]['padding']
+        spritesheet[f'{out}.{outFormat}'] = t.copy()
+        out += 1
 
-    # print(args.dir, args.format)
+    (outFolder / 'spritesheet.json').write_text(
+        json.dumps(spritesheet, indent=4)
+    )
+
+
+def toXml(data: list, images, outFolder: Path, outFormat: str) -> None:
+    out = 0
+    root = et.Element('spritesheets')
+    for i in range(len(data)):
+        sheet: et.Element = et.Element('sheet', attrib={
+            'name': f'{out}.{outFormat}'
+        })
+        root.append(sheet)
+        out += 1
+        for j in data[i]['rects'].keys():
+            attribs = {}
+            attribs['n'] = j
+            attribs['x'], attribs['y'] = data[i]['rects'][j]['pos']
+            attribs['w'], attribs['h'] = data[i]['rects'][j]['size']
+            attribs['px'], attribs['py'], *_ = images[j]['padding']
+
+            elem = et.Element('img', attrib={
+                k: str(v) for k, v in attribs.items()
+            })
+            sheet.append(elem)
+    (outFolder / 'spritesheet.xml').write_bytes(
+        et.tostring(root, pretty_print=True)
+    )
+
+
+def main(args: argparse.Namespace) -> None:
     chdir(Path(args.dir).resolve())
     files = list(Path('./').glob(f'*.{args.format}'))
-    # print(files)
-    # files = glob(f'*.{args.format}')
 
     if not len(files):
         return
 
     tempDir = TemporaryDirectory()
 
-    # images = {Path(i).stem: processImage(Image.open(i)) for i in files}
     images = cleanImages(files, tempDir.name)
 
     sizes = [
@@ -158,26 +158,15 @@ def main() -> None:
         }
     )
 
-    out = 0
     data = packer.addList(sizes).getData()
     outFolder = Path(args.outfolder)
     if not outFolder.exists():
         makedirs(outFolder)
 
-    with open(outFolder / 'spritesheet.json', 'w', encoding='utf-8') as file:
-        # spritesheet = [{**i['rects']} for i in data.copy()]
-        spritesheet = {}
-        for i in range(len(data)):
-            t = {}
-            for j in data[i]['rects'].keys():
-                t[j] = {}
-                t[j]['x'], t[j]['y'] = data[i]['rects'][j]['pos']
-                t[j]['width'], t[j]['height'] = data[i]['rects'][j]['size']
-                t[j]['pad_x'], t[j]['pad_y'], *_ = images[j]['padding']
-            spritesheet[f'{out}.png'] = t.copy()
-            out += 1
-
-        json.dump(spritesheet, file, indent=4)
+    if args.xml:
+        toXml(data, images, outFolder, args.outFormat)
+    else:
+        toJson(data, images, outFolder, args.outFormat)
 
     out = 0
 
@@ -197,4 +186,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    main(argParser.parse_args())

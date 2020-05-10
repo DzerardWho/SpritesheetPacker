@@ -1,14 +1,14 @@
-import json
 import argparse
-import lxml.etree as et
-from PIL import Image
+import json
 from pathlib import Path
-from os import makedirs
-from BinPacker.BinPacker import BinPacker
-from os import chdir
 from tempfile import TemporaryDirectory
-import numpy as np
 from typing import List, Dict
+
+import lxml.etree as et
+import numpy as np
+from PIL import Image
+
+from BinPacker.BinPacker import BinPacker
 
 
 def positive_value(x) -> int:
@@ -17,6 +17,8 @@ def positive_value(x) -> int:
         raise argparse.ArgumentTypeError('Value must be a positive number')
     return x
 
+
+homePath = Path('./')
 
 argParser = argparse.ArgumentParser("Generate spritesheet")
 argParser.add_argument('format', nargs='?', default='png', type=str,
@@ -45,25 +47,24 @@ def cleanImages(files: List[Path], tempPath: Path) -> Dict[str, Dict]:
 
     for file in files:
         name = Path(file).stem
-        imageFile = Image.open(file)
-        image = np.array(imageFile.convert("RGBA"))
+        imageFile = Image.open(file).convert('RGBA')
+        r, g, b, a = imageFile.split()
+        shape = imageFile.size
         imageFile.close()
-        shape = image.shape
 
-        mask = image[:, :, 3] == 0
+        mask = np.array(a) == 0
         r = Image.fromarray(
-            np.ma.array(image[:, :, 0], mask=mask).filled(0),
+            np.ma.array(r, mask=mask).filled(0),
             'L'
         )
         g = Image.fromarray(
-            np.ma.array(image[:, :, 1], mask=mask).filled(0),
+            np.ma.array(g, mask=mask).filled(0),
             'L'
         )
         b = Image.fromarray(
-            np.ma.array(image[:, :, 2], mask=mask).filled(0),
+            np.ma.array(b, mask=mask).filled(0),
             'L'
         )
-        a = Image.fromarray(image[:, :, 3], 'L')
 
         path = Path(tempPath, f'{name}.npy')
         img = Image.merge('RGBA', [r, g, b, a])
@@ -85,16 +86,29 @@ def cleanImages(files: List[Path], tempPath: Path) -> Dict[str, Dict]:
     return outData
 
 
-def toJson(data: list, images, outFolder: Path, outFormat: str) -> None:
+def getName(name: str, repNames: Dict[str, str]) -> str:
+    if repNames is None or name not in repNames:
+        return name
+    return repNames[name]
+
+
+def toJson(
+        data: list,
+        images,
+        outFolder: Path,
+        outFormat: str,
+        repNames: Dict[str, str]
+) -> None:
     out = 0
     spritesheet = {}
     for i in range(len(data)):
         t = {}
         for j in data[i]['rects'].keys():
-            t[j] = {}
-            t[j]['x'], t[j]['y'] = data[i]['rects'][j]['pos']
-            t[j]['width'], t[j]['height'] = data[i]['rects'][j]['size']
-            t[j]['pad_x'], t[j]['pad_y'], *_ = images[j]['padding']
+            name = getName(j, repNames)
+            t[name] = {}
+            t[name]['x'], t[j]['y'] = data[i]['rects'][j]['pos']
+            t[name]['width'], t[j]['height'] = data[i]['rects'][j]['size']
+            t[name]['pad_x'], t[j]['pad_y'], *_ = images[j]['padding']
         spritesheet[f'{out}.{outFormat}'] = t.copy()
         out += 1
 
@@ -103,7 +117,13 @@ def toJson(data: list, images, outFolder: Path, outFormat: str) -> None:
     )
 
 
-def toXml(data: list, images, outFolder: Path, outFormat: str) -> None:
+def toXml(
+        data: list,
+        images,
+        outFolder: Path,
+        outFormat: str,
+        repNames: Dict[str, str]
+) -> None:
     out = 0
     root = et.Element('spritesheets')
     for i in range(len(data)):
@@ -114,7 +134,7 @@ def toXml(data: list, images, outFolder: Path, outFormat: str) -> None:
         out += 1
         for j in data[i]['rects'].keys():
             attribs = {}
-            attribs['n'] = j
+            attribs['n'] = getName(j, repNames)
             attribs['x'], attribs['y'] = data[i]['rects'][j]['pos']
             attribs['w'], attribs['h'] = data[i]['rects'][j]['size']
             attribs['px'], attribs['py'], *_ = images[j]['padding']
@@ -128,9 +148,11 @@ def toXml(data: list, images, outFolder: Path, outFormat: str) -> None:
     )
 
 
-def main(args: argparse.Namespace) -> None:
-    chdir(Path(args.dir).resolve())
-    files = list(Path('./').glob(f'*.{args.format}'))
+def main(args: argparse.Namespace, repNames: Dict[str, str] = None) -> None:
+    # chdir(Path(args.dir).resolve())
+    global homePath
+    homePath = Path(args.dir).resolve()
+    files = list(homePath.glob(f'*.{args.format}'))
 
     if not len(files):
         return
@@ -161,12 +183,12 @@ def main(args: argparse.Namespace) -> None:
     data = packer.addList(sizes).getData()
     outFolder = Path(args.outfolder)
     if not outFolder.exists():
-        makedirs(outFolder)
+        outFolder.mkdir(parents=True)
 
     if args.xml:
-        toXml(data, images, outFolder, args.outFormat)
+        toXml(data, images, outFolder, args.outFormat, repNames)
     else:
-        toJson(data, images, outFolder, args.outFormat)
+        toJson(data, images, outFolder, args.outFormat, repNames)
 
     out = 0
 
@@ -185,5 +207,9 @@ def main(args: argparse.Namespace) -> None:
         out += 1
 
 
-if __name__ == "__main__":
+def run():
     main(argParser.parse_args())
+
+
+if __name__ == "__main__":
+    run()
